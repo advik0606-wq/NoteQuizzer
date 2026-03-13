@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Document ID: userId (UID)
+    // Fields: uid, email, displayName, createdAt
+    
+    // Collection: studySets
+    // Document ID: setId
+    // Fields: uid, title, notes, quiz, flashcards, createdAt
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.uid;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email']) &&
+             data.uid is string &&
+             data.email is string;
+    }
+
+    function isValidStudySet(data) {
+      return data.keys().hasAll(['uid', 'title', 'notes']) &&
+             data.uid == request.auth.uid &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.notes is string && data.notes.size() > 0;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(request.resource.data);
+      allow update: if isOwner(userId) && isValidUser(request.resource.data);
+    }
+
+    match /studySets/{setId} {
+      allow read: if isDocOwner();
+      allow create: if isAuthenticated() && isValidStudySet(request.resource.data);
+      allow update: if isDocOwner() && isValidStudySet(request.resource.data);
+      allow delete: if isDocOwner();
+    }
+  }
+}

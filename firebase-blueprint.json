@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Stores user-specific settings and profile information.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique ID of the user." },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "StudySet": {
+      "title": "Study Set",
+      "description": "A collection of notes, quizzes, and flashcards created by a user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The ID of the user who owns this set." },
+        "title": { "type": "string" },
+        "notes": { "type": "string" },
+        "quiz": { 
+          "type": "array",
+          "items": { "$ref": "QuizQuestion" }
+        },
+        "flashcards": {
+          "type": "array",
+          "items": { "$ref": "Flashcard" }
+        },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "title", "notes"]
+    },
+    "QuizQuestion": {
+      "title": "Quiz Question",
+      "type": "object",
+      "properties": {
+        "question": { "type": "string" },
+        "options": { "type": "array", "items": { "type": "string" } },
+        "correctAnswer": { "type": "string" },
+        "explanation": { "type": "string" }
+      }
+    },
+    "Flashcard": {
+      "title": "Flashcard",
+      "type": "object",
+      "properties": {
+        "front": { "type": "string" },
+        "back": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile documents."
+    },
+    "/studySets/{setId}": {
+      "schema": "StudySet",
+      "description": "Study sets containing notes, quizzes, and flashcards."
+    }
+  }
+}

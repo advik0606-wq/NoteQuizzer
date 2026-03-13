@@ -1,0 +1,5 @@
+{
+  "name": "NoteQuizzer",
+  "description": "Convert your notes into interactive quizzes and flashcards using AI.",
+  "requestFramePermissions": []
+}
