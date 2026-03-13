@@ -84,6 +84,7 @@ export default function App() {
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   // File Parsing Logic
   const extractTextFromFile = async (file: File): Promise<string> => {
@@ -193,11 +194,19 @@ export default function App() {
   }, [user]);
 
   const handleLogin = async (providerType: 'google' | 'github' = 'google') => {
+    setAuthError(null);
     const provider = providerType === 'google' ? new GoogleAuthProvider() : new GithubAuthProvider();
     try {
       await signInWithPopup(auth, provider);
-    } catch (error) {
+    } catch (error: any) {
       console.error(`${providerType} login failed:`, error);
+      if (error.code === 'auth/unauthorized-domain') {
+        setAuthError('This domain is not authorized in Firebase. Please add it to "Authorized Domains" in the Firebase Console.');
+      } else if (error.code === 'auth/popup-blocked') {
+        setAuthError('Sign-in popup was blocked by your browser. Please allow popups for this site.');
+      } else {
+        setAuthError(error.message || 'Login failed. Please try again.');
+      }
     }
   };
 
@@ -372,6 +381,17 @@ export default function App() {
                 <p className="text-xl text-zinc-500 max-w-xl mx-auto">
                   NoteQuizzer uses AI to transform your messy notes into structured study sets. Sign in to save your progress.
                 </p>
+
+                {authError && (
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="max-w-md mx-auto p-4 bg-red-50 border border-red-100 rounded-2xl text-red-600 text-sm flex items-center gap-3"
+                  >
+                    <XCircle size={20} className="shrink-0" />
+                    <p className="text-left">{authError}</p>
+                  </motion.div>
+                )}
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <button 
                     onClick={() => handleLogin('google')}
