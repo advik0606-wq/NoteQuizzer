@@ -20,11 +20,22 @@ import {
   LogOut,
   History,
   Plus,
-  Trash2
+  Trash2,
+  Github,
+  FileText,
+  FileUp,
+  Sparkles
 } from 'lucide-react';
+import { useDropzone } from 'react-dropzone';
+import * as mammoth from 'mammoth';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set worker source for pdfjs
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
+  GithubAuthProvider,
   onAuthStateChanged, 
   signOut, 
   User 
@@ -72,6 +83,66 @@ export default function App() {
   const [quizFinished, setQuizFinished] = useState(false);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
+  const [isParsing, setIsParsing] = useState(false);
+
+  // File Parsing Logic
+  const extractTextFromFile = async (file: File): Promise<string> => {
+    const extension = file.name.split('.').pop()?.toLowerCase();
+
+    if (extension === 'txt') {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.readAsText(file);
+      });
+    }
+
+    if (extension === 'docx') {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return result.value;
+    }
+
+    if (extension === 'pdf') {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        fullText += pageText + '\n';
+      }
+      return fullText;
+    }
+
+    throw new Error('Unsupported file type');
+  };
+
+  const onDrop = async (acceptedFiles: File[]) => {
+    if (acceptedFiles.length === 0) return;
+    setIsParsing(true);
+    try {
+      const file = acceptedFiles[0];
+      if (!title) setTitle(file.name.replace(/\.[^/.]+$/, ""));
+      const text = await extractTextFromFile(file);
+      setNotes(prev => prev ? prev + '\n\n' + text : text);
+    } catch (error) {
+      console.error('File parsing failed:', error);
+    } finally {
+      setIsParsing(false);
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'text/plain': ['.txt'],
+      'application/pdf': ['.pdf'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx']
+    },
+    multiple: false
+  });
 
   // Auth Listener
   useEffect(() => {
@@ -121,12 +192,12 @@ export default function App() {
     return () => unsubscribe();
   }, [user]);
 
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
+  const handleLogin = async (providerType: 'google' | 'github' = 'google') => {
+    const provider = providerType === 'google' ? new GoogleAuthProvider() : new GithubAuthProvider();
     try {
       await signInWithPopup(auth, provider);
     } catch (error) {
-      console.error('Login failed:', error);
+      console.error(`${providerType} login failed:`, error);
     }
   };
 
@@ -139,7 +210,7 @@ export default function App() {
     }
   };
 
-  const handleGenerate = async (type: 'quiz' | 'flashcards') => {
+  const handleGenerate = async () => {
     if (!notes.trim() || !user) return;
     setIsGenerating(true);
     try {
@@ -155,15 +226,9 @@ export default function App() {
         createdAt: serverTimestamp(),
       };
 
-      const docRef = await addDoc(collection(db, 'studySets'), newSet);
-      const fullSet = { id: docRef.id, ...newSet, createdAt: { seconds: Date.now()/1000 } } as StudySet;
+      await addDoc(collection(db, 'studySets'), newSet);
       
-      setActiveSet(fullSet);
-      if (type === 'quiz') {
-        startQuiz(fullSet);
-      } else {
-        setCurrentPage('flashcards');
-      }
+      setCurrentPage('history');
       setNotes('');
       setTitle('');
     } catch (error) {
@@ -269,13 +334,22 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <button 
-                onClick={handleLogin}
-                className="flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white rounded-xl text-sm font-semibold hover:bg-zinc-800 transition-all"
-              >
-                <LogIn size={16} />
-                Sign In
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => handleLogin('google')}
+                  className="flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 text-zinc-900 rounded-xl text-sm font-semibold hover:bg-zinc-50 transition-all"
+                >
+                  <LogIn size={16} />
+                  Google
+                </button>
+                <button 
+                  onClick={() => handleLogin('github')}
+                  className="flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white rounded-xl text-sm font-semibold hover:bg-zinc-800 transition-all"
+                >
+                  <Github size={16} />
+                  GitHub
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -298,13 +372,22 @@ export default function App() {
                 <p className="text-xl text-zinc-500 max-w-xl mx-auto">
                   NoteQuizzer uses AI to transform your messy notes into structured study sets. Sign in to save your progress.
                 </p>
-                <button 
-                  onClick={handleLogin}
-                  className="px-10 py-5 bg-emerald-600 text-white rounded-2xl text-lg font-bold hover:bg-emerald-700 shadow-xl shadow-emerald-500/20 transition-all flex items-center gap-3 mx-auto"
-                >
-                  Get Started for Free
-                  <ChevronRight size={24} />
-                </button>
+                <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                  <button 
+                    onClick={() => handleLogin('google')}
+                    className="px-10 py-5 bg-emerald-600 text-white rounded-2xl text-lg font-bold hover:bg-emerald-700 shadow-xl shadow-emerald-500/20 transition-all flex items-center justify-center gap-3"
+                  >
+                    Sign in with Google
+                    <ChevronRight size={24} />
+                  </button>
+                  <button 
+                    onClick={() => handleLogin('github')}
+                    className="px-10 py-5 bg-zinc-900 text-white rounded-2xl text-lg font-bold hover:bg-zinc-800 shadow-xl shadow-zinc-500/20 transition-all flex items-center justify-center gap-3"
+                  >
+                    Sign in with GitHub
+                    <Github size={24} />
+                  </button>
+                </div>
               </div>
               
               <div className="grid grid-cols-1 md:grid-cols-3 gap-8 pt-12">
@@ -352,35 +435,59 @@ export default function App() {
                       className="w-full p-4 bg-zinc-50 border border-zinc-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-xs font-bold uppercase tracking-widest text-zinc-400">Your Notes</label>
-                    <textarea
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Paste your notes here..."
-                      className="w-full h-64 p-6 bg-zinc-50 border border-zinc-200 rounded-2xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none text-zinc-800 leading-relaxed"
-                    />
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-zinc-400">Upload Files (PDF, DOCX, TXT)</label>
+                      <div 
+                        {...getRootProps()} 
+                        className={cn(
+                          "h-64 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all",
+                          isDragActive ? "border-emerald-500 bg-emerald-50" : "border-zinc-200 hover:border-emerald-400 hover:bg-zinc-50"
+                        )}
+                      >
+                        <input {...getInputProps()} />
+                        <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
+                          {isParsing ? <RefreshCw className="animate-spin" /> : <FileUp size={32} />}
+                        </div>
+                        <div className="text-center">
+                          <p className="font-bold text-zinc-900">
+                            {isDragActive ? "Drop it here!" : "Drag & drop file"}
+                          </p>
+                          <p className="text-xs text-zinc-500">or click to browse</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold uppercase tracking-widest text-zinc-400">Or Paste Notes</label>
+                      <textarea
+                        value={notes}
+                        onChange={(e) => setNotes(e.target.value)}
+                        placeholder="Paste your notes here..."
+                        className="w-full h-64 p-6 bg-zinc-50 border border-zinc-200 rounded-2xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all resize-none text-zinc-800 leading-relaxed"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <button
-                    disabled={!notes.trim() || isGenerating}
-                    onClick={() => handleGenerate('quiz')}
-                    className="flex items-center justify-center gap-3 py-4 px-6 bg-zinc-900 text-white rounded-2xl font-semibold hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  >
-                    {isGenerating ? <RefreshCw className="animate-spin" size={20} /> : <BrainCircuit size={20} />}
-                    Generate Quiz
-                  </button>
-                  <button
-                    disabled={!notes.trim() || isGenerating}
-                    onClick={() => handleGenerate('flashcards')}
-                    className="flex items-center justify-center gap-3 py-4 px-6 bg-emerald-600 text-white rounded-2xl font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-                  >
-                    {isGenerating ? <RefreshCw className="animate-spin" size={20} /> : <BookOpen size={20} />}
-                    Generate Flashcards
-                  </button>
-                </div>
+                <button
+                  disabled={!notes.trim() || isGenerating}
+                  onClick={handleGenerate}
+                  className="w-full flex items-center justify-center gap-3 py-5 px-6 bg-emerald-600 text-white rounded-2xl font-bold text-lg hover:bg-emerald-700 shadow-lg shadow-emerald-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                >
+                  {isGenerating ? (
+                    <>
+                      <RefreshCw className="animate-spin" size={24} />
+                      Creating your study set...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={24} />
+                      Generate Complete Study Set
+                    </>
+                  )}
+                </button>
               </div>
 
               {studySets.length > 0 && (
